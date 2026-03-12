@@ -3,12 +3,18 @@
 import { useState, useCallback } from 'react'
 import DropZone from '@/components/DropZone'
 
-type AppState = 'idle' | 'loading' | 'result' | 'error'
-
 interface AnalysisResult {
   ocr: string
   analysis: string
   summary: string
+}
+
+interface ImageResult {
+  file: File
+  preview: string
+  result: AnalysisResult | null
+  error: string | null
+  status: 'pending' | 'analyzing' | 'done' | 'error'
 }
 
 interface ResultCardProps {
@@ -29,12 +35,10 @@ function ResultCard({ title, content, mono }: ResultCardProps) {
   return (
     <div
       style={{
-        backgroundColor: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: '16px',
+        backgroundColor: 'rgba(255,255,255,0.02)',
+        border: '1px solid rgba(255,255,255,0.06)',
+        borderRadius: '12px',
         overflow: 'hidden',
-        position: 'relative',
-        zIndex: 1,
       }}
     >
       <div
@@ -42,298 +46,330 @@ function ResultCard({ title, content, mono }: ResultCardProps) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '14px 16px',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          padding: '12px 14px',
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
         }}
       >
-        <span style={{
-          fontSize: '11px',
-          fontWeight: 600,
-          color: 'rgba(255,255,255,0.4)',
-          letterSpacing: '0.1em',
-          textTransform: 'uppercase',
-        }}>
+        <span style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
           {title}
         </span>
-        {/* Copy button — 44px min tap target */}
         <button
           onClick={handleCopy}
           style={{
             background: 'none',
             border: '1px solid rgba(255,255,255,0.10)',
-            borderRadius: '8px',
+            borderRadius: '7px',
             color: copied ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)',
             fontSize: '12px',
             cursor: 'pointer',
-            padding: '8px 14px',
-            minHeight: '36px',
+            padding: '6px 12px',
+            minHeight: '32px',
             display: 'flex',
             alignItems: 'center',
             gap: '5px',
-            transition: 'color 0.15s',
           }}
         >
-          {copied ? (
-            <>
-              <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              Copied
-            </>
-          ) : (
-            <>
-              <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                <rect x="4" y="1" width="7" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-                <rect x="1" y="3" width="7" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-              </svg>
-              Copy
-            </>
-          )}
+          {copied ? '✓ Copied' : 'Copy'}
         </button>
       </div>
-
       <div
         style={{
-          padding: '16px',
-          maxHeight: mono ? '240px' : 'none',
+          padding: '14px',
+          maxHeight: mono ? '200px' : 'none',
           overflowY: mono ? 'auto' : 'visible',
           WebkitOverflowScrolling: 'touch',
         }}
       >
         {content ? (
-          <p
-            style={{
-              fontSize: '15px',
-              lineHeight: '1.75',
-              color: 'rgba(255,255,255,0.72)',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              fontFamily: mono
-                ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
-                : 'inherit',
-            }}
-          >
+          <p style={{
+            fontSize: '14px',
+            lineHeight: '1.75',
+            color: 'rgba(255,255,255,0.68)',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' : 'inherit',
+          }}>
             {content}
           </p>
         ) : (
-          <p style={{ fontSize: '15px', color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>
-            No text detected.
-          </p>
+          <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>No text detected.</p>
         )}
       </div>
     </div>
   )
 }
 
+function ImageResultCard({ item, index }: { item: ImageResult; index: number }) {
+  const [expanded, setExpanded] = useState(true)
+
+  return (
+    <div
+      style={{
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: '16px',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Image header row */}
+      <button
+        onClick={() => item.status === 'done' && setExpanded(!expanded)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          padding: '14px 16px',
+          background: 'none',
+          border: 'none',
+          borderBottom: expanded && item.status === 'done' ? '1px solid rgba(255,255,255,0.06)' : 'none',
+          cursor: item.status === 'done' ? 'pointer' : 'default',
+          textAlign: 'left',
+        }}
+      >
+        {/* Thumbnail */}
+        <div style={{ width: '44px', height: '44px', borderRadius: '8px', overflow: 'hidden', flexShrink: 0 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={item.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        </div>
+
+        {/* Name + status */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ color: 'rgba(255,255,255,0.80)', fontSize: '14px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {index + 1}. {item.file.name}
+          </p>
+          <p style={{ color: statusColor(item.status), fontSize: '12px', marginTop: '2px' }}>
+            {statusLabel(item.status)}
+          </p>
+        </div>
+
+        {/* Chevron */}
+        {item.status === 'done' && (
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, transition: 'transform 0.2s', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+            <path d="M4 6L8 10L12 6" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+
+        {/* Spinner */}
+        {item.status === 'analyzing' && (
+          <div style={{
+            width: '16px',
+            height: '16px',
+            borderRadius: '50%',
+            background: 'radial-gradient(circle at 38% 36%, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.3) 50%, transparent 70%)',
+            boxShadow: '0 0 10px 3px rgba(255,255,255,0.12)',
+            animation: 'pulse 1.4s ease-in-out infinite',
+            flexShrink: 0,
+          }} />
+        )}
+      </button>
+
+      {/* Results */}
+      {expanded && item.status === 'done' && item.result && (
+        <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <ResultCard title="Extracted Text" content={item.result.ocr} mono />
+          <ResultCard title="Analysis" content={item.result.analysis} />
+          <ResultCard title="Summary" content={item.result.summary} />
+        </div>
+      )}
+
+      {/* Error */}
+      {item.status === 'error' && item.error && (
+        <div style={{ padding: '14px' }}>
+          <p style={{ color: 'rgba(255,100,100,0.7)', fontSize: '13px' }}>{item.error}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function statusLabel(status: ImageResult['status']): string {
+  switch (status) {
+    case 'pending': return 'Waiting...'
+    case 'analyzing': return 'Analyzing...'
+    case 'done': return 'Done'
+    case 'error': return 'Failed'
+  }
+}
+
+function statusColor(status: ImageResult['status']): string {
+  switch (status) {
+    case 'pending': return 'rgba(255,255,255,0.20)'
+    case 'analyzing': return 'rgba(255,255,255,0.50)'
+    case 'done': return 'rgba(160,220,160,0.70)'
+    case 'error': return 'rgba(255,100,100,0.60)'
+  }
+}
+
+type AppState = 'idle' | 'analyzing' | 'done'
+
 export default function HomePage() {
-  const [state, setState] = useState<AppState>('idle')
-  const [result, setResult] = useState<AnalysisResult | null>(null)
-  const [errorMessage, setErrorMessage] = useState('')
+  const [appState, setAppState] = useState<AppState>('idle')
+  const [imageResults, setImageResults] = useState<ImageResult[]>([])
+  const [progress, setProgress] = useState({ current: 0, total: 0 })
 
-  const handleAnalyze = useCallback(async (file: File) => {
-    setState('loading')
-    setResult(null)
-    setErrorMessage('')
+  const handleAnalyze = useCallback(async (files: File[]) => {
+    // Build initial state with previews
+    const initial: ImageResult[] = await Promise.all(
+      files.map((file) =>
+        new Promise<ImageResult>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = (e) =>
+            resolve({ file, preview: e.target?.result as string, result: null, error: null, status: 'pending' })
+          reader.readAsDataURL(file)
+        })
+      )
+    )
 
-    try {
-      const formData = new FormData()
-      formData.append('image', file)
+    setImageResults(initial)
+    setAppState('analyzing')
+    setProgress({ current: 0, total: files.length })
 
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        body: formData,
+    // Process sequentially
+    for (let i = 0; i < files.length; i++) {
+      setProgress({ current: i + 1, total: files.length })
+
+      // Mark as analyzing
+      setImageResults((prev) => {
+        const next = [...prev]
+        next[i] = { ...next[i], status: 'analyzing' }
+        return next
       })
 
-      const data = await response.json()
+      try {
+        const formData = new FormData()
+        formData.append('image', files[i])
+        const response = await fetch('/api/analyze', { method: 'POST', body: formData })
+        const data = await response.json()
 
-      if (!response.ok) {
-        setErrorMessage(data.error || 'Something went wrong. Please try again.')
-        setState('error')
-        return
+        if (!response.ok) {
+          setImageResults((prev) => {
+            const next = [...prev]
+            next[i] = { ...next[i], status: 'error', error: data.error || 'Analysis failed' }
+            return next
+          })
+        } else {
+          setImageResults((prev) => {
+            const next = [...prev]
+            next[i] = { ...next[i], status: 'done', result: data }
+            return next
+          })
+        }
+      } catch {
+        setImageResults((prev) => {
+          const next = [...prev]
+          next[i] = { ...next[i], status: 'error', error: 'Network error' }
+          return next
+        })
       }
-
-      setResult(data)
-      setState('result')
-    } catch {
-      setErrorMessage('Network error. Please check your connection and try again.')
-      setState('error')
     }
+
+    setAppState('done')
   }, [])
 
   const handleReset = () => {
-    setState('idle')
-    setResult(null)
-    setErrorMessage('')
+    setAppState('idle')
+    setImageResults([])
+    setProgress({ current: 0, total: 0 })
   }
 
   return (
     <main
       style={{
-        minHeight: '100vh',
         minHeight: '100dvh',
         backgroundColor: '#1a1a1a',
-        padding: 'env(safe-area-inset-top, 0px) 0 calc(env(safe-area-inset-bottom, 0px) + 32px)',
+        padding: 'env(safe-area-inset-top, 0px) 0 calc(env(safe-area-inset-bottom, 0px) + 40px)',
         position: 'relative',
       } as React.CSSProperties}
     >
-      {/* Ambient orb glow */}
-      <div
-        style={{
-          position: 'fixed',
-          top: '10%',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: '100vw',
-          maxWidth: '600px',
-          height: '400px',
-          background: 'radial-gradient(ellipse at center, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 50%, transparent 75%)',
-          pointerEvents: 'none',
-          zIndex: 0,
-          filter: 'blur(40px)',
-        }}
-      />
+      {/* Ambient orb */}
+      <div style={{
+        position: 'fixed', top: '10%', left: '50%', transform: 'translateX(-50%)',
+        width: '100vw', maxWidth: '600px', height: '400px',
+        background: 'radial-gradient(ellipse at center, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 50%, transparent 75%)',
+        pointerEvents: 'none', zIndex: 0, filter: 'blur(40px)',
+      }} />
 
-      <div
-        style={{
-          maxWidth: '560px',
-          margin: '0 auto',
-          padding: '40px 20px 0',
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 0.4; transform: scale(0.88); }
+          50% { opacity: 1; transform: scale(1.12); }
+        }
+      `}</style>
+
+      <div style={{ maxWidth: '560px', margin: '0 auto', padding: '40px 20px 0', position: 'relative', zIndex: 1 }}>
+
         {/* Header */}
-        <div style={{ marginBottom: '36px', textAlign: 'center' }}>
-          <p style={{
-            fontSize: '11px',
-            color: 'rgba(255,255,255,0.22)',
-            letterSpacing: '0.14em',
-            textTransform: 'uppercase',
-            marginBottom: '10px',
-          }}>
+        <div style={{ marginBottom: '32px', textAlign: 'center' }}>
+          <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.22)', letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: '10px' }}>
             Claude Vision
           </p>
-          <h1 style={{
-            fontSize: '28px',
-            fontWeight: 600,
-            color: 'rgba(255,255,255,0.90)',
-            lineHeight: 1.2,
-            letterSpacing: '-0.02em',
-          }}>
+          <h1 style={{ fontSize: '28px', fontWeight: 600, color: 'rgba(255,255,255,0.90)', lineHeight: 1.2, letterSpacing: '-0.02em' }}>
             Screenshot KB
           </h1>
-          <p style={{
-            fontSize: '15px',
-            color: 'rgba(255,255,255,0.28)',
-            lineHeight: 1.6,
-            marginTop: '8px',
-          }}>
-            Snap or upload a photo for instant OCR, analysis, and summary.
+          <p style={{ fontSize: '15px', color: 'rgba(255,255,255,0.28)', lineHeight: 1.6, marginTop: '8px' }}>
+            Upload one or many photos for instant OCR, analysis, and summary.
           </p>
         </div>
 
-        {/* Drop zone */}
-        {(state === 'idle' || state === 'loading') && (
-          <DropZone onAnalyze={handleAnalyze} disabled={state === 'loading'} />
+        {/* Upload state */}
+        {appState === 'idle' && (
+          <DropZone onAnalyze={handleAnalyze} disabled={false} />
         )}
 
-        {/* Loading */}
-        {state === 'loading' && (
-          <div
-            style={{
-              marginTop: '32px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '12px',
-              color: 'rgba(255,255,255,0.35)',
-              fontSize: '15px',
-            }}
-          >
-            <div
-              style={{
-                width: '18px',
-                height: '18px',
-                borderRadius: '50%',
-                background: 'radial-gradient(circle at 38% 36%, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.3) 50%, transparent 70%)',
-                boxShadow: '0 0 12px 4px rgba(255,255,255,0.15)',
-                animation: 'pulse 1.4s ease-in-out infinite',
-                flexShrink: 0,
-              }}
-            />
-            <style>{`
-              @keyframes pulse {
-                0%, 100% { opacity: 0.4; transform: scale(0.88); }
-                50% { opacity: 1; transform: scale(1.12); }
-              }
-            `}</style>
-            Analyzing with Claude...
-          </div>
-        )}
-
-        {/* Error */}
-        {state === 'error' && (
+        {/* Analyzing / done state */}
+        {(appState === 'analyzing' || appState === 'done') && (
           <div>
-            <div
-              style={{
-                backgroundColor: 'rgba(255,80,80,0.06)',
-                border: '1px solid rgba(255,80,80,0.15)',
-                borderRadius: '16px',
-                padding: '20px',
-                marginBottom: '16px',
-              }}
-            >
-              <p style={{ color: 'rgba(255,120,120,0.9)', fontSize: '15px', marginBottom: '4px', fontWeight: 500 }}>
-                Analysis failed
-              </p>
-              <p style={{ color: 'rgba(255,120,120,0.5)', fontSize: '14px' }}>{errorMessage}</p>
-            </div>
-            <button
-              onClick={handleReset}
-              style={{
-                width: '100%',
-                padding: '18px',
-                backgroundColor: 'transparent',
-                color: 'rgba(255,255,255,0.6)',
-                border: '1px solid rgba(255,255,255,0.10)',
-                borderRadius: '16px',
-                fontSize: '17px',
-                fontWeight: 500,
-                cursor: 'pointer',
-                minHeight: '56px',
-              }}
-            >
-              Try again
-            </button>
-          </div>
-        )}
+            {/* Progress bar */}
+            {appState === 'analyzing' && (
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.40)' }}>
+                    Analyzing {progress.current} of {progress.total}...
+                  </span>
+                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.25)' }}>
+                    {Math.round((progress.current / progress.total) * 100)}%
+                  </span>
+                </div>
+                <div style={{ height: '2px', backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: '2px', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    backgroundColor: 'rgba(255,255,255,0.5)',
+                    borderRadius: '2px',
+                    width: `${(progress.current / progress.total) * 100}%`,
+                    transition: 'width 0.4s ease',
+                  }} />
+                </div>
+              </div>
+            )}
 
-        {/* Results */}
-        {state === 'result' && result && (
-          <div>
+            {/* Per-image result cards */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
-              <ResultCard title="Extracted Text" content={result.ocr} mono />
-              <ResultCard title="Analysis" content={result.analysis} />
-              <ResultCard title="Summary" content={result.summary} />
+              {imageResults.map((item, i) => (
+                <ImageResultCard key={i} item={item} index={i} />
+              ))}
             </div>
 
-            <button
-              onClick={handleReset}
-              style={{
-                width: '100%',
-                padding: '18px',
-                backgroundColor: 'rgba(255,255,255,0.05)',
-                color: 'rgba(255,255,255,0.5)',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '16px',
-                fontSize: '16px',
-                fontWeight: 500,
-                cursor: 'pointer',
-                minHeight: '56px',
-              }}
-            >
-              Analyze another
-            </button>
+            {/* Analyze more button — only shown when done */}
+            {appState === 'done' && (
+              <button
+                onClick={handleReset}
+                style={{
+                  width: '100%',
+                  padding: '18px',
+                  backgroundColor: 'rgba(255,255,255,0.05)',
+                  color: 'rgba(255,255,255,0.5)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px',
+                  fontSize: '16px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  minHeight: '56px',
+                }}
+              >
+                Analyze more photos
+              </button>
+            )}
           </div>
         )}
       </div>
