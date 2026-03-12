@@ -1,10 +1,11 @@
 'use client'
 
 import { useRef, useState, DragEvent, ChangeEvent } from 'react'
+import { Screenshot } from '@/lib/types'
 
 interface DropZoneProps {
-  onAnalyze: (files: File[]) => void
-  disabled?: boolean
+  onUpload: (screenshots: Screenshot[]) => void
+  onClose?: () => void
 }
 
 function formatBytes(bytes: number): string {
@@ -15,22 +16,23 @@ function formatBytes(bytes: number): string {
 
 /**
  * Multi-image drag-and-drop / tap-to-upload zone.
- * Mobile: triggers native photo library + camera picker (multiple select).
+ * Uploads files to /api/upload and returns Screenshot records via onUpload.
  */
-export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
+export default function DropZone({ onUpload, onClose }: DropZoneProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [previews, setPreviews] = useState<string[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const addFiles = (incoming: FileList | File[]) => {
     const arr = Array.from(incoming).filter((f) => f.type.startsWith('image/'))
     if (!arr.length) return
 
-    const newFiles = [...files, ...arr].slice(0, 20) // cap at 20
+    const newFiles = [...files, ...arr].slice(0, 20)
     setFiles(newFiles)
 
-    // generate previews for new files only
     arr.forEach((file, i) => {
       if (files.length + i >= 20) return
       const reader = new FileReader()
@@ -74,6 +76,33 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
   const handleReset = () => {
     setFiles([])
     setPreviews([])
+    setUploadError(null)
+  }
+
+  const handleUpload = async () => {
+    if (!files.length) return
+    setUploading(true)
+    setUploadError(null)
+
+    try {
+      const formData = new FormData()
+      files.forEach((f) => formData.append('images', f))
+
+      const res = await fetch('/api/upload', { method: 'POST', body: formData })
+      const data = await res.json()
+
+      if (!res.ok) {
+        setUploadError(data.error || 'Upload failed')
+        return
+      }
+
+      onUpload(data.screenshots)
+      if (onClose) onClose()
+    } catch {
+      setUploadError('Network error — please try again')
+    } finally {
+      setUploading(false)
+    }
   }
 
   const orbGlow = isDragging
@@ -95,10 +124,9 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
         style={{ display: 'none' }}
       />
 
-      {/* Drop / tap zone */}
       {files.length === 0 ? (
         <div
-          onClick={() => !disabled && inputRef.current?.click()}
+          onClick={() => inputRef.current?.click()}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -107,20 +135,18 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
             border: `1px solid ${isDragging ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.08)'}`,
             background: orbBg,
             boxShadow: orbGlow,
-            minHeight: '56vw',
-            maxHeight: '360px',
+            minHeight: '220px',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            cursor: disabled ? 'default' : 'pointer',
+            cursor: 'pointer',
             transition: 'box-shadow 0.3s ease, border-color 0.3s ease',
             padding: '32px 24px',
             WebkitUserSelect: 'none',
             userSelect: 'none',
           }}
         >
-          {/* Orb icon */}
           <div
             style={{
               width: '72px',
@@ -145,7 +171,6 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
           </p>
         </div>
       ) : (
-        /* Thumbnail grid */
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -158,65 +183,39 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
             transition: 'border-color 0.2s',
           }}
         >
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
-              gap: '8px',
-            }}
-          >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
             {files.map((file, i) => (
               <div key={i} style={{ position: 'relative', aspectRatio: '1', borderRadius: '12px', overflow: 'hidden' }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 {previews[i] && (
-                  <img
-                    src={previews[i]}
-                    alt={file.name}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
+                  <img src={previews[i]} alt={file.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 )}
-                {/* Remove button */}
                 <button
                   onClick={() => removeFile(i)}
                   style={{
-                    position: 'absolute',
-                    top: '4px',
-                    right: '4px',
-                    width: '24px',
-                    height: '24px',
-                    borderRadius: '50%',
+                    position: 'absolute', top: '4px', right: '4px',
+                    width: '24px', height: '24px', borderRadius: '50%',
                     backgroundColor: 'rgba(0,0,0,0.7)',
                     border: '1px solid rgba(255,255,255,0.15)',
-                    color: 'rgba(255,255,255,0.8)',
-                    fontSize: '14px',
-                    lineHeight: 1,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: 0,
+                    color: 'rgba(255,255,255,0.8)', fontSize: '14px',
+                    lineHeight: 1, cursor: 'pointer', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', padding: 0,
                   }}
                 >
                   ×
                 </button>
               </div>
             ))}
-
-            {/* Add more tile */}
             {files.length < 20 && (
               <button
                 onClick={() => inputRef.current?.click()}
                 style={{
-                  aspectRatio: '1',
-                  borderRadius: '12px',
+                  aspectRatio: '1', borderRadius: '12px',
                   border: '1px dashed rgba(255,255,255,0.12)',
                   background: 'rgba(255,255,255,0.02)',
-                  color: 'rgba(255,255,255,0.3)',
-                  fontSize: '28px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  color: 'rgba(255,255,255,0.3)', fontSize: '28px',
+                  cursor: 'pointer', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center',
                 }}
               >
                 +
@@ -224,22 +223,17 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
             )}
           </div>
 
-          {/* File count + clear */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '12px', padding: '0 4px' }}>
             <span style={{ color: 'rgba(255,255,255,0.30)', fontSize: '13px' }}>
-              {files.length} photo{files.length !== 1 ? 's' : ''} selected
+              {files.length} photo{files.length !== 1 ? 's' : ''} — {files.reduce((a, f) => a + f.size, 0) > 0 ? formatBytes(files.reduce((a, f) => a + f.size, 0)) : ''}
             </span>
             <button
               onClick={handleReset}
               style={{
-                background: 'none',
-                border: 'none',
-                color: 'rgba(255,255,255,0.22)',
-                fontSize: '13px',
-                cursor: 'pointer',
-                textDecoration: 'underline',
-                padding: '8px 0',
-                minHeight: '44px',
+                background: 'none', border: 'none',
+                color: 'rgba(255,255,255,0.22)', fontSize: '13px',
+                cursor: 'pointer', textDecoration: 'underline',
+                padding: '8px 0', minHeight: '44px',
               }}
             >
               Clear all
@@ -248,26 +242,29 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
         </div>
       )}
 
-      {/* Analyze button */}
-      {files.length > 0 && !disabled && (
+      {uploadError && (
+        <p style={{ color: 'rgba(255,100,100,0.75)', fontSize: '13px', marginTop: '10px', textAlign: 'center' }}>
+          {uploadError}
+        </p>
+      )}
+
+      {files.length > 0 && (
         <div style={{ marginTop: '16px' }}>
           <button
-            onClick={() => onAnalyze(files)}
+            onClick={handleUpload}
+            disabled={uploading}
             style={{
-              width: '100%',
-              padding: '18px',
-              backgroundColor: '#ffffff',
-              color: '#1a1a1a',
-              border: 'none',
-              borderRadius: '16px',
-              fontSize: '17px',
-              fontWeight: 600,
-              cursor: 'pointer',
+              width: '100%', padding: '18px',
+              backgroundColor: uploading ? 'rgba(255,255,255,0.7)' : '#ffffff',
+              color: '#1a1a1a', border: 'none', borderRadius: '16px',
+              fontSize: '17px', fontWeight: 600,
+              cursor: uploading ? 'not-allowed' : 'pointer',
               boxShadow: '0 0 24px 4px rgba(255,255,255,0.08)',
               minHeight: '56px',
+              transition: 'background-color 0.2s',
             }}
           >
-            Analyze {files.length} Image{files.length !== 1 ? 's' : ''}
+            {uploading ? 'Uploading...' : `Upload ${files.length} Image${files.length !== 1 ? 's' : ''}`}
           </button>
         </div>
       )}

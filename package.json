@@ -1,6 +1,6 @@
 {
-  "name": "image-analyzer",
-  "version": "0.1.0",
+  "name": "screenshot-kb",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3025",
@@ -12,7 +12,8 @@
     "next": "14.2.0",
     "react": "^18",
     "react-dom": "^18",
-    "@anthropic-ai/sdk": "^0.30.0"
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@supabase/supabase-js": "^2.45.0"
   },
   "devDependencies": {
     "typescript": "^5",
