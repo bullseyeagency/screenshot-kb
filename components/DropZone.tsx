@@ -14,8 +14,9 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * Drag-and-drop image upload zone with orb-of-light aesthetic.
- * Accepts JPG, PNG, GIF, and WebP files.
+ * Drag-and-drop / tap-to-upload image zone.
+ * Mobile: triggers native photo library + camera picker.
+ * Desktop: drag-and-drop or click-to-browse.
  */
 export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
   const [isDragging, setIsDragging] = useState(false)
@@ -24,8 +25,8 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const acceptFile = (file: File) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-    if (!allowed.includes(file.type)) return
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif']
+    if (!allowed.includes(file.type) && !file.type.startsWith('image/')) return
     setSelectedFile(file)
     const reader = new FileReader()
     reader.onload = (e) => setPreview(e.target?.result as string)
@@ -72,6 +73,15 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
 
   return (
     <div style={{ width: '100%', position: 'relative', zIndex: 1 }}>
+      {/* Hidden file input — image/* opens camera + photo library on mobile */}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleInputChange}
+        style={{ display: 'none' }}
+      />
+
       <div
         onClick={!selectedFile && !disabled ? () => inputRef.current?.click() : undefined}
         onDragOver={handleDragOver}
@@ -82,34 +92,30 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
           border: `1px solid ${isDragging ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.08)'}`,
           background: orbBg,
           boxShadow: orbGlow,
-          minHeight: '320px',
+          minHeight: '56vw',
+          maxHeight: '360px',
+          minWidth: 0,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
           cursor: selectedFile || disabled ? 'default' : 'pointer',
-          transition: 'box-shadow 0.3s ease, border-color 0.3s ease, background 0.3s ease',
-          padding: '40px 32px',
+          transition: 'box-shadow 0.3s ease, border-color 0.3s ease',
+          padding: '32px 24px',
           position: 'relative',
           overflow: 'hidden',
+          WebkitUserSelect: 'none',
+          userSelect: 'none',
         }}
       >
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
-          onChange={handleInputChange}
-          style={{ display: 'none' }}
-        />
-
         {preview && selectedFile ? (
-          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={preview}
               alt="Preview"
               style={{
-                maxHeight: '220px',
+                maxHeight: '200px',
                 maxWidth: '100%',
                 objectFit: 'contain',
                 borderRadius: '12px',
@@ -118,7 +124,7 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
               }}
             />
             <div style={{ textAlign: 'center' }}>
-              <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px', fontWeight: 500 }}>
+              <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '14px', fontWeight: 500 }}>
                 {selectedFile.name}
               </p>
               <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px', marginTop: '3px' }}>
@@ -131,25 +137,25 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
                 background: 'none',
                 border: 'none',
                 color: 'rgba(255,255,255,0.25)',
-                fontSize: '12px',
+                fontSize: '13px',
                 cursor: 'pointer',
                 textDecoration: 'underline',
-                padding: 0,
-                transition: 'color 0.15s',
+                padding: '8px 0',
+                minHeight: '44px',
+                display: 'flex',
+                alignItems: 'center',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
             >
               Remove and choose another
             </button>
           </div>
         ) : (
           <div style={{ textAlign: 'center', userSelect: 'none' }}>
-            {/* Orb icon — soft glow circle, no radial lines */}
+            {/* Orb icon — soft glow sphere */}
             <div
               style={{
-                width: '64px',
-                height: '64px',
+                width: '72px',
+                height: '72px',
                 borderRadius: '50%',
                 margin: '0 auto 24px',
                 background: isDragging
@@ -163,45 +169,39 @@ export default function DropZone({ onAnalyze, disabled }: DropZoneProps) {
               }}
             />
             <p style={{
-              color: isDragging ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.75)',
-              fontSize: '16px',
+              color: 'rgba(255,255,255,0.80)',
+              fontSize: '17px',
               fontWeight: 500,
               marginBottom: '6px',
-              transition: 'color 0.2s',
             }}>
-              {isDragging ? 'Release to drop' : 'Drop an image here'}
+              Tap to add a photo
             </p>
-            <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: '13px', marginBottom: '16px' }}>
-              or click to browse
-            </p>
-            <p style={{ color: 'rgba(255,255,255,0.12)', fontSize: '11px', letterSpacing: '0.05em' }}>
-              JPG · PNG · GIF · WebP
+            <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: '14px' }}>
+              Camera or photo library
             </p>
           </div>
         )}
       </div>
 
-      {/* Analyze button */}
+      {/* Analyze button — large for mobile thumb reach */}
       {selectedFile && !disabled && (
         <div style={{ marginTop: '16px' }}>
           <button
             onClick={() => onAnalyze(selectedFile)}
             style={{
               width: '100%',
-              padding: '14px',
+              padding: '18px',
               backgroundColor: '#ffffff',
               color: '#1a1a1a',
               border: 'none',
-              borderRadius: '12px',
-              fontSize: '15px',
+              borderRadius: '16px',
+              fontSize: '17px',
               fontWeight: 600,
               cursor: 'pointer',
               letterSpacing: '0.01em',
-              transition: 'background-color 0.15s',
               boxShadow: '0 0 24px 4px rgba(255,255,255,0.08)',
+              minHeight: '56px',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.88)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ffffff' }}
           >
             Analyze Image
           </button>

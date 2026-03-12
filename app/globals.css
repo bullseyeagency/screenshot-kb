@@ -6,12 +6,15 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
   background-color: #1a1a1a;
   color: #ffffff;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Safe area for notched phones */
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* Dot texture overlay — Bullseye DS pattern */
@@ -23,6 +26,11 @@ body::before {
   background-size: 20px 20px;
   pointer-events: none;
   z-index: 0;
+}
+
+/* Prevent iOS double-tap zoom on buttons */
+button {
+  touch-action: manipulation;
 }
 
 ::-webkit-scrollbar {
