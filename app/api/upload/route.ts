@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { compressImage } from '@/lib/compress'
+import { uploadToR2 } from '@/lib/r2'
+import { analyzeImage } from '@/lib/claude'
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,40 +21,29 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      const id = crypto.randomUUID()
-      const storagePath = `screenshots/${id}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
-
+      // 1. Read file as Buffer
       const arrayBuffer = await file.arrayBuffer()
-      const buffer = Buffer.from(arrayBuffer)
+      const rawBuffer = Buffer.from(arrayBuffer)
 
-      // Upload to Supabase Storage
-      const { error: uploadError } = await supabase.storage
-        .from('screenshots')
-        .upload(storagePath, buffer, {
-          contentType: file.type || 'image/jpeg',
-          upsert: false,
-        })
+      // 2. Compress image to JPEG
+      const compressed = await compressImage(rawBuffer)
 
-      if (uploadError) {
-        console.error('Storage upload error:', uploadError)
-        return NextResponse.json({ error: `Upload failed: ${uploadError.message}` }, { status: 500 })
-      }
+      // 3. Generate R2 key
+      const key = `screenshots/${crypto.randomUUID()}-${Date.now()}.jpg`
 
-      // Get public URL
-      const { data: urlData } = supabase.storage.from('screenshots').getPublicUrl(storagePath)
-      const publicUrl = urlData.publicUrl
+      // 4. Upload compressed buffer to R2
+      const publicUrl = await uploadToR2(key, compressed.buffer, 'image/jpeg')
 
-      // Insert DB record
+      // 5. Insert DB record with status: 'processing'
       const { data: record, error: insertError } = await supabase
         .from('screenshots')
         .insert({
-          id,
           filename: file.name,
-          storage_path: storagePath,
+          storage_path: key,
           url: publicUrl,
-          file_size: file.size,
-          mime_type: file.type,
-          status: 'inbox',
+          file_size: compressed.sizeBytes,
+          mime_type: 'image/jpeg',
+          status: 'processing',
         })
         .select()
         .single()
@@ -61,7 +53,45 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: `DB insert failed: ${insertError.message}` }, { status: 500 })
       }
 
-      created.push(record)
+      // 6. Call Claude Vision with compressed buffer
+      let analysisResult
+      try {
+        analysisResult = await analyzeImage(compressed.buffer)
+      } catch (claudeError) {
+        console.error('Claude analysis error:', claudeError)
+        // Return the processing record — client can poll or retry
+        created.push(record)
+        continue
+      }
+
+      // 7. Update DB record with analysis + status: 'analyzed'
+      const { data: updated, error: updateError } = await supabase
+        .from('screenshots')
+        .update({
+          status: 'analyzed',
+          ocr: analysisResult.ocr || null,
+          analysis: analysisResult.analysis || null,
+          summary: analysisResult.summary || null,
+          categories: analysisResult.categories,
+          tags: analysisResult.tags,
+          topics: analysisResult.topics,
+          content_type: analysisResult.content_type || null,
+          key_entities: analysisResult.key_entities,
+          action_items: analysisResult.action_items,
+          source_hint: analysisResult.source_hint || null,
+        })
+        .eq('id', record.id)
+        .select()
+        .single()
+
+      if (updateError) {
+        console.error('DB update error:', updateError)
+        created.push(record)
+        continue
+      }
+
+      // 8. Return fully analyzed screenshot record
+      created.push(updated)
     }
 
     return NextResponse.json({ screenshots: created })

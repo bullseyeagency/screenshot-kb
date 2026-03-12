@@ -15,53 +15,6 @@ function truncate(str: string, max: number): string {
   return str.length > max ? str.slice(0, max) + '…' : str
 }
 
-// ─── Status Badge ─────────────────────────────────────────────────────────────
-
-function StatusBadge({ status }: { status: Screenshot['status'] }) {
-  const styles: Record<Screenshot['status'], React.CSSProperties> = {
-    inbox: {
-      backgroundColor: 'rgba(255,255,255,0.12)',
-      color: 'rgba(255,255,255,0.75)',
-    },
-    analyzing: {
-      backgroundColor: 'rgba(255,200,80,0.15)',
-      color: 'rgba(255,200,80,0.9)',
-    },
-    analyzed: {
-      backgroundColor: 'rgba(100,220,130,0.12)',
-      color: 'rgba(100,220,130,0.85)',
-    },
-    archived: {
-      backgroundColor: 'rgba(255,255,255,0.06)',
-      color: 'rgba(255,255,255,0.30)',
-    },
-  }
-
-  const labels: Record<Screenshot['status'], string> = {
-    inbox: 'Inbox',
-    analyzing: 'Analyzing...',
-    analyzed: 'Analyzed',
-    archived: 'Archived',
-  }
-
-  return (
-    <span
-      className={status === 'analyzing' ? 'badge-analyzing' : ''}
-      style={{
-        ...styles[status],
-        padding: '3px 8px',
-        borderRadius: '100px',
-        fontSize: '11px',
-        fontWeight: 600,
-        letterSpacing: '0.02em',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {labels[status]}
-    </span>
-  )
-}
-
 // ─── Chip ─────────────────────────────────────────────────────────────────────
 
 function Chip({ label }: { label: string }) {
@@ -74,31 +27,47 @@ interface DetailPanelProps {
   screenshot: Screenshot
   onClose: () => void
   onDelete: (id: string) => void
+  onKeep: (id: string) => void
 }
 
-function DetailPanel({ screenshot, onClose, onDelete }: DetailPanelProps) {
-  const [deleting, setDeleting] = useState(false)
+function DetailPanel({ screenshot, onClose, onDelete, onKeep }: DetailPanelProps) {
+  const [acting, setActing] = useState<'keeping' | 'deleting' | null>(null)
+
+  const handleKeep = async () => {
+    setActing('keeping')
+    try {
+      await fetch(`/api/screenshots/${screenshot.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'kept' }),
+      })
+      onKeep(screenshot.id)
+      onClose()
+    } catch {
+      setActing(null)
+    }
+  }
 
   const handleDelete = async () => {
-    if (!confirm('Delete this screenshot?')) return
-    setDeleting(true)
+    setActing('deleting')
     try {
       await fetch(`/api/screenshots/${screenshot.id}`, { method: 'DELETE' })
       onDelete(screenshot.id)
       onClose()
     } catch {
-      setDeleting(false)
+      setActing(null)
     }
   }
 
-  const hasMetadata = screenshot.status === 'analyzed'
+  const isProcessing = screenshot.status === 'processing'
+  const hasMetadata = screenshot.status === 'analyzed' || screenshot.status === 'kept'
 
   return (
     <>
       {/* Backdrop */}
       <div className="overlay-backdrop" onClick={onClose} />
 
-      {/* Panel — full screen on mobile, right slide-in on desktop */}
+      {/* Panel */}
       <div
         className="panel-slide-in"
         style={{
@@ -113,7 +82,7 @@ function DetailPanel({ screenshot, onClose, onDelete }: DetailPanelProps) {
           zIndex: 60,
           overflowY: 'auto',
           WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'],
-          paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)',
+          paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 100px)',
         }}
       >
         {/* Header */}
@@ -138,21 +107,19 @@ function DetailPanel({ screenshot, onClose, onDelete }: DetailPanelProps) {
               {formatDate(screenshot.uploaded_at)}
             </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: '12px', flexShrink: 0 }}>
-            <StatusBadge status={screenshot.status} />
-            <button
-              onClick={onClose}
-              style={{
-                background: 'none', border: '1px solid rgba(255,255,255,0.10)',
-                borderRadius: '8px', color: 'rgba(255,255,255,0.45)',
-                fontSize: '18px', cursor: 'pointer',
-                width: '34px', height: '34px', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-              }}
-            >
-              ×
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            style={{
+              marginLeft: '12px', flexShrink: 0,
+              background: 'none', border: '1px solid rgba(255,255,255,0.10)',
+              borderRadius: '8px', color: 'rgba(255,255,255,0.45)',
+              fontSize: '18px', cursor: 'pointer',
+              width: '34px', height: '34px', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            ×
+          </button>
         </div>
 
         {/* Image */}
@@ -167,25 +134,8 @@ function DetailPanel({ screenshot, onClose, onDelete }: DetailPanelProps) {
 
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-          {/* Not yet analyzed */}
-          {!hasMetadata && screenshot.status !== 'analyzing' && (
-            <div style={{
-              backgroundColor: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.06)',
-              borderRadius: '12px',
-              padding: '20px',
-              textAlign: 'center',
-            }}>
-              <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '14px' }}>
-                This screenshot has not been analyzed yet.
-              </p>
-              <p style={{ color: 'rgba(255,255,255,0.20)', fontSize: '13px', marginTop: '4px' }}>
-                Select it in the gallery and tap Analyze.
-              </p>
-            </div>
-          )}
-
-          {screenshot.status === 'analyzing' && (
+          {/* Processing state */}
+          {isProcessing && (
             <div style={{
               backgroundColor: 'rgba(255,200,80,0.06)',
               border: '1px solid rgba(255,200,80,0.12)',
@@ -194,7 +144,7 @@ function DetailPanel({ screenshot, onClose, onDelete }: DetailPanelProps) {
               textAlign: 'center',
             }}>
               <p className="badge-analyzing" style={{ color: 'rgba(255,200,80,0.8)', fontSize: '14px' }}>
-                Analysis in progress...
+                Analyzing...
               </p>
             </div>
           )}
@@ -356,21 +306,62 @@ function DetailPanel({ screenshot, onClose, onDelete }: DetailPanelProps) {
             </div>
           </div>
 
-          {/* Delete */}
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
-            style={{
-              width: '100%', padding: '14px',
-              backgroundColor: 'rgba(255,60,60,0.08)',
-              border: '1px solid rgba(255,60,60,0.18)',
-              borderRadius: '12px', color: 'rgba(255,100,100,0.75)',
-              fontSize: '14px', fontWeight: 500, cursor: deleting ? 'not-allowed' : 'pointer',
-              opacity: deleting ? 0.5 : 1, transition: 'opacity 0.2s',
-            }}
-          >
-            {deleting ? 'Deleting...' : 'Delete Screenshot'}
-          </button>
+          {/* Keep / Delete actions — only show when analyzed (not already kept, not processing) */}
+          {screenshot.status === 'analyzed' && (
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={handleKeep}
+                disabled={acting !== null}
+                style={{
+                  flex: 1, padding: '14px',
+                  backgroundColor: acting === 'keeping' ? 'rgba(255,255,255,0.7)' : '#ffffff',
+                  border: 'none',
+                  borderRadius: '12px', color: '#1a1a1a',
+                  fontSize: '14px', fontWeight: 600,
+                  cursor: acting !== null ? 'not-allowed' : 'pointer',
+                  opacity: acting !== null && acting !== 'keeping' ? 0.4 : 1,
+                  transition: 'opacity 0.2s, background-color 0.2s',
+                }}
+              >
+                {acting === 'keeping' ? 'Keeping...' : 'Keep this'}
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={acting !== null}
+                style={{
+                  flex: 1, padding: '14px',
+                  backgroundColor: 'transparent',
+                  border: '1px solid rgba(255,60,60,0.30)',
+                  borderRadius: '12px', color: 'rgba(255,100,100,0.80)',
+                  fontSize: '14px', fontWeight: 500,
+                  cursor: acting !== null ? 'not-allowed' : 'pointer',
+                  opacity: acting !== null && acting !== 'deleting' ? 0.4 : 1,
+                  transition: 'opacity 0.2s',
+                }}
+              >
+                {acting === 'deleting' ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          )}
+
+          {/* Already kept — only show delete */}
+          {screenshot.status === 'kept' && (
+            <button
+              onClick={handleDelete}
+              disabled={acting !== null}
+              style={{
+                width: '100%', padding: '14px',
+                backgroundColor: 'rgba(255,60,60,0.08)',
+                border: '1px solid rgba(255,60,60,0.18)',
+                borderRadius: '12px', color: 'rgba(255,100,100,0.75)',
+                fontSize: '14px', fontWeight: 500,
+                cursor: acting !== null ? 'not-allowed' : 'pointer',
+                opacity: acting ? 0.5 : 1, transition: 'opacity 0.2s',
+              }}
+            >
+              {acting === 'deleting' ? 'Deleting...' : 'Delete Screenshot'}
+            </button>
+          )}
         </div>
       </div>
     </>
@@ -392,6 +383,8 @@ function GalleryCard({ screenshot, selected, onToggleSelect, onOpen }: GalleryCa
     onToggleSelect(screenshot.id)
   }
 
+  const isProcessing = screenshot.status === 'processing'
+
   return (
     <div
       className="gallery-card"
@@ -404,6 +397,8 @@ function GalleryCard({ screenshot, selected, onToggleSelect, onOpen }: GalleryCa
         cursor: 'pointer',
         position: 'relative',
         boxShadow: selected ? '0 0 0 1px rgba(255,255,255,0.18), 0 0 20px rgba(255,255,255,0.05)' : 'none',
+        opacity: isProcessing ? 0.6 : 1,
+        transition: 'opacity 0.2s',
       }}
     >
       {/* Thumbnail */}
@@ -417,18 +412,32 @@ function GalleryCard({ screenshot, selected, onToggleSelect, onOpen }: GalleryCa
             objectFit: 'cover',
           }}
         />
-        {/* Checkbox overlay */}
-        <div
-          onClick={handleCheckbox}
-          className={`custom-checkbox ${selected ? 'checked' : ''}`}
-          style={{ position: 'absolute', top: '8px', left: '8px' }}
-        >
-          {selected && (
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M2 6L5 9L10 3" stroke="#1a1a1a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          )}
-        </div>
+        {/* Processing overlay */}
+        {isProcessing && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <span className="badge-analyzing" style={{ fontSize: '11px', color: 'rgba(255,200,80,0.85)', fontWeight: 600 }}>
+              Analyzing...
+            </span>
+          </div>
+        )}
+        {/* Checkbox overlay — hidden while processing */}
+        {!isProcessing && (
+          <div
+            onClick={handleCheckbox}
+            className={`custom-checkbox ${selected ? 'checked' : ''}`}
+            style={{ position: 'absolute', top: '8px', left: '8px' }}
+          >
+            {selected && (
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M2 6L5 9L10 3" stroke="#1a1a1a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Card info */}
@@ -444,7 +453,14 @@ function GalleryCard({ screenshot, selected, onToggleSelect, onOpen }: GalleryCa
           <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.22)' }}>
             {formatDate(screenshot.uploaded_at)}
           </span>
-          <StatusBadge status={screenshot.status} />
+          {screenshot.status === 'kept' && (
+            <span style={{
+              padding: '3px 8px', borderRadius: '100px', fontSize: '11px', fontWeight: 600,
+              backgroundColor: 'rgba(100,220,130,0.12)', color: 'rgba(100,220,130,0.85)',
+            }}>
+              Kept
+            </span>
+          )}
         </div>
         {/* Tags preview */}
         {screenshot.tags && screenshot.tags.length > 0 && (
@@ -511,13 +527,13 @@ function UploadModal({ onUpload, onClose }: UploadModalProps) {
 
 interface FloatingBarProps {
   count: number
-  analyzing: boolean
-  onAnalyze: () => void
+  onKeep: () => void
   onDelete: () => void
   onClear: () => void
+  acting: boolean
 }
 
-function FloatingBar({ count, analyzing, onAnalyze, onDelete, onClear }: FloatingBarProps) {
+function FloatingBar({ count, onKeep, onDelete, onClear, acting }: FloatingBarProps) {
   return (
     <div
       className="fade-in"
@@ -543,35 +559,41 @@ function FloatingBar({ count, analyzing, onAnalyze, onDelete, onClear }: Floatin
       </span>
       <button
         onClick={onClear}
+        disabled={acting}
         style={{
           background: 'none', border: '1px solid rgba(255,255,255,0.10)',
           borderRadius: '100px', color: 'rgba(255,255,255,0.40)',
-          fontSize: '13px', cursor: 'pointer', padding: '7px 14px',
+          fontSize: '13px', cursor: acting ? 'not-allowed' : 'pointer',
+          padding: '7px 14px', opacity: acting ? 0.5 : 1,
         }}
       >
         Clear
       </button>
       <button
         onClick={onDelete}
+        disabled={acting}
         style={{
           background: 'rgba(255,60,60,0.12)', border: '1px solid rgba(255,60,60,0.20)',
           borderRadius: '100px', color: 'rgba(255,100,100,0.80)',
-          fontSize: '13px', fontWeight: 500, cursor: 'pointer', padding: '7px 14px',
+          fontSize: '13px', fontWeight: 500,
+          cursor: acting ? 'not-allowed' : 'pointer',
+          padding: '7px 14px', opacity: acting ? 0.5 : 1,
         }}
       >
         Delete
       </button>
       <button
-        onClick={onAnalyze}
-        disabled={analyzing}
+        onClick={onKeep}
+        disabled={acting}
         style={{
-          backgroundColor: analyzing ? 'rgba(255,255,255,0.6)' : '#ffffff',
+          backgroundColor: acting ? 'rgba(255,255,255,0.6)' : '#ffffff',
           border: 'none', borderRadius: '100px', color: '#1a1a1a',
-          fontSize: '13px', fontWeight: 600, cursor: analyzing ? 'not-allowed' : 'pointer',
+          fontSize: '13px', fontWeight: 600,
+          cursor: acting ? 'not-allowed' : 'pointer',
           padding: '8px 18px', transition: 'background-color 0.2s',
         }}
       >
-        {analyzing ? 'Analyzing...' : `Analyze ${count}`}
+        {acting ? 'Keeping...' : `Keep ${count}`}
       </button>
     </div>
   )
@@ -579,7 +601,27 @@ function FloatingBar({ count, analyzing, onAnalyze, onDelete, onClear }: Floatin
 
 // ─── Empty State ──────────────────────────────────────────────────────────────
 
-function EmptyState({ onUpload }: { onUpload: () => void }) {
+function EmptyState({ tab, onUpload }: { tab: 'review' | 'kept'; onUpload: () => void }) {
+  if (tab === 'kept') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 24px', textAlign: 'center' }}>
+        <div style={{
+          width: '72px', height: '72px', borderRadius: '50%',
+          background: 'radial-gradient(circle at 38% 36%, rgba(100,220,130,0.20) 0%, rgba(100,220,130,0.06) 45%, transparent 70%)',
+          boxShadow: '0 0 24px 8px rgba(100,220,130,0.05)',
+          border: '1px solid rgba(100,220,130,0.12)',
+          marginBottom: '24px',
+        }} />
+        <p style={{ fontSize: '17px', fontWeight: 500, color: 'rgba(255,255,255,0.70)', marginBottom: '8px' }}>
+          Nothing saved yet
+        </p>
+        <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.28)', lineHeight: 1.6, maxWidth: '240px' }}>
+          Screenshots you keep will appear here.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 24px', textAlign: 'center' }}>
       <div style={{
@@ -590,7 +632,7 @@ function EmptyState({ onUpload }: { onUpload: () => void }) {
         marginBottom: '24px',
       }} />
       <p style={{ fontSize: '17px', fontWeight: 500, color: 'rgba(255,255,255,0.70)', marginBottom: '8px' }}>
-        No screenshots here
+        All caught up
       </p>
       <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.28)', lineHeight: 1.6, marginBottom: '24px', maxWidth: '260px' }}>
         Upload screenshots to start building your knowledge base.
@@ -612,16 +654,16 @@ function EmptyState({ onUpload }: { onUpload: () => void }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-type FilterTab = 'all' | 'inbox' | 'analyzed'
+type GalleryTab = 'review' | 'kept'
 
 export default function HomePage() {
   const [screenshots, setScreenshots] = useState<Screenshot[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<FilterTab>('all')
+  const [tab, setTab] = useState<GalleryTab>('review')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [activeDetail, setActiveDetail] = useState<Screenshot | null>(null)
   const [showUpload, setShowUpload] = useState(false)
-  const [batchAnalyzing, setBatchAnalyzing] = useState(false)
+  const [batchActing, setBatchActing] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Fetch all screenshots
@@ -643,17 +685,16 @@ export default function HomePage() {
     fetchScreenshots()
   }, [fetchScreenshots])
 
-  // Poll when any screenshot is analyzing
+  // Poll when any screenshot is processing
   useEffect(() => {
-    const hasAnalyzing = screenshots.some((s) => s.status === 'analyzing')
+    const hasProcessing = screenshots.some((s) => s.status === 'processing')
 
-    if (hasAnalyzing && !pollRef.current) {
+    if (hasProcessing && !pollRef.current) {
       pollRef.current = setInterval(async () => {
         const res = await fetch('/api/screenshots')
         const data = await res.json()
         if (data.screenshots) {
           setScreenshots(data.screenshots)
-          // Also update active detail if it's being watched
           setActiveDetail((prev) => {
             if (!prev) return null
             const fresh = data.screenshots.find((s: Screenshot) => s.id === prev.id)
@@ -663,33 +704,26 @@ export default function HomePage() {
       }, 3000)
     }
 
-    if (!hasAnalyzing && pollRef.current) {
+    if (!hasProcessing && pollRef.current) {
       clearInterval(pollRef.current)
       pollRef.current = null
     }
 
     return () => {
-      if (pollRef.current && !hasAnalyzing) {
+      if (pollRef.current && !hasProcessing) {
         clearInterval(pollRef.current)
         pollRef.current = null
       }
     }
   }, [screenshots])
 
-  // Filtered list
-  const filtered = screenshots.filter((s) => {
-    if (filter === 'inbox') return s.status === 'inbox'
-    if (filter === 'analyzed') return s.status === 'analyzed'
-    return true
-  })
+  // Tab-filtered lists
+  const reviewList = screenshots.filter((s) => s.status === 'analyzed')
+  const keptList = screenshots.filter((s) => s.status === 'kept')
+  const processingCount = screenshots.filter((s) => s.status === 'processing').length
+  const filtered = tab === 'review' ? reviewList : keptList
 
-  // Tab counts
-  const counts = {
-    all: screenshots.length,
-    inbox: screenshots.filter((s) => s.status === 'inbox').length,
-    analyzed: screenshots.filter((s) => s.status === 'analyzed').length,
-  }
-
+  // Only allow selecting in review tab (analyzed items)
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -709,76 +743,63 @@ export default function HomePage() {
     setSelected((prev) => { const next = new Set(prev); next.delete(id); return next })
   }
 
-  const handleBatchDelete = async () => {
-    if (!confirm(`Delete ${selected.size} screenshot${selected.size !== 1 ? 's' : ''}?`)) return
-    const ids = Array.from(selected)
-    await Promise.all(ids.map((id) => fetch(`/api/screenshots/${id}`, { method: 'DELETE' })))
-    setScreenshots((prev) => prev.filter((s) => !ids.includes(s.id)))
-    setSelected(new Set())
+  const handleKeepFromDetail = (id: string) => {
+    setScreenshots((prev) =>
+      prev.map((s) => s.id === id ? { ...s, status: 'kept' as const } : s)
+    )
+    setSelected((prev) => { const next = new Set(prev); next.delete(id); return next })
   }
 
-  const handleBatchAnalyze = async () => {
-    const ids = Array.from(selected).filter((id) => {
-      const s = screenshots.find((sc) => sc.id === id)
-      return s && s.status === 'inbox'
-    })
-    if (!ids.length) {
-      alert('All selected screenshots are already analyzed.')
-      return
-    }
-
-    setBatchAnalyzing(true)
+  const handleBatchKeep = async () => {
+    const ids = Array.from(selected)
+    if (!ids.length) return
+    setBatchActing(true)
     setSelected(new Set())
-
-    // Mark all as analyzing immediately
-    setScreenshots((prev) =>
-      prev.map((s) => ids.includes(s.id) ? { ...s, status: 'analyzing' as const } : s)
-    )
-
-    for (const id of ids) {
-      try {
-        const res = await fetch('/api/analyze', {
-          method: 'POST',
+    await Promise.all(
+      ids.map((id) =>
+        fetch(`/api/screenshots/${id}`, {
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ screenshotId: id }),
+          body: JSON.stringify({ status: 'kept' }),
         })
-        const data = await res.json()
-        if (data.screenshot) {
-          setScreenshots((prev) =>
-            prev.map((s) => s.id === id ? data.screenshot : s)
-          )
-          // Update detail panel if watching this one
-          setActiveDetail((prev) => prev?.id === id ? data.screenshot : prev)
-        } else {
-          setScreenshots((prev) =>
-            prev.map((s) => s.id === id ? { ...s, status: 'inbox' as const } : s)
-          )
-        }
-      } catch {
-        setScreenshots((prev) =>
-          prev.map((s) => s.id === id ? { ...s, status: 'inbox' as const } : s)
-        )
-      }
-    }
+      )
+    )
+    setScreenshots((prev) =>
+      prev.map((s) => ids.includes(s.id) ? { ...s, status: 'kept' as const } : s)
+    )
+    setBatchActing(false)
+  }
 
-    setBatchAnalyzing(false)
+  const handleBatchDelete = async () => {
+    const ids = Array.from(selected)
+    if (!ids.length) return
+    setBatchActing(true)
+    setSelected(new Set())
+    await Promise.all(ids.map((id) => fetch(`/api/screenshots/${id}`, { method: 'DELETE' })))
+    setScreenshots((prev) => prev.filter((s) => !ids.includes(s.id)))
+    setBatchActing(false)
   }
 
   const openDetail = (screenshot: Screenshot) => {
-    // Get fresh version from state
     const fresh = screenshots.find((s) => s.id === screenshot.id) || screenshot
     setActiveDetail(fresh)
   }
 
-  const tabStyle = (tab: FilterTab): React.CSSProperties => ({
+  // Clear selection when switching tabs
+  const handleTabSwitch = (t: GalleryTab) => {
+    setTab(t)
+    setSelected(new Set())
+  }
+
+  const tabStyle = (t: GalleryTab): React.CSSProperties => ({
     padding: '7px 14px',
     borderRadius: '100px',
     fontSize: '13px',
-    fontWeight: filter === tab ? 600 : 500,
+    fontWeight: tab === t ? 600 : 500,
     cursor: 'pointer',
     border: 'none',
-    backgroundColor: filter === tab ? 'rgba(255,255,255,0.10)' : 'transparent',
-    color: filter === tab ? 'rgba(255,255,255,0.90)' : 'rgba(255,255,255,0.35)',
+    backgroundColor: tab === t ? 'rgba(255,255,255,0.10)' : 'transparent',
+    color: tab === t ? 'rgba(255,255,255,0.90)' : 'rgba(255,255,255,0.35)',
     transition: 'all 0.15s ease',
   })
 
@@ -831,7 +852,25 @@ export default function HomePage() {
           </button>
         </div>
 
-        {/* Filter tabs */}
+        {/* Processing banner */}
+        {processingCount > 0 && (
+          <div
+            className="badge-analyzing"
+            style={{
+              marginTop: '16px',
+              padding: '10px 14px',
+              backgroundColor: 'rgba(255,200,80,0.06)',
+              border: '1px solid rgba(255,200,80,0.14)',
+              borderRadius: '10px',
+              fontSize: '13px',
+              color: 'rgba(255,200,80,0.80)',
+            }}
+          >
+            {processingCount} {processingCount === 1 ? 'photo' : 'photos'} being analyzed...
+          </div>
+        )}
+
+        {/* Tabs */}
         <div style={{
           display: 'flex', gap: '4px', marginTop: '20px', marginBottom: '20px',
           backgroundColor: 'rgba(255,255,255,0.03)',
@@ -839,19 +878,28 @@ export default function HomePage() {
           borderRadius: '100px', padding: '4px',
           width: 'fit-content',
         }}>
-          {(['all', 'inbox', 'analyzed'] as FilterTab[]).map((tab) => (
-            <button key={tab} onClick={() => setFilter(tab)} style={tabStyle(tab)}>
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              {counts[tab] > 0 && (
-                <span style={{
-                  marginLeft: '6px', fontSize: '11px',
-                  color: filter === tab ? 'rgba(255,255,255,0.50)' : 'rgba(255,255,255,0.20)',
-                }}>
-                  {counts[tab]}
-                </span>
-              )}
-            </button>
-          ))}
+          <button onClick={() => handleTabSwitch('review')} style={tabStyle('review')}>
+            Review
+            {reviewList.length > 0 && (
+              <span style={{
+                marginLeft: '6px', fontSize: '11px',
+                color: tab === 'review' ? 'rgba(255,255,255,0.50)' : 'rgba(255,255,255,0.20)',
+              }}>
+                {reviewList.length}
+              </span>
+            )}
+          </button>
+          <button onClick={() => handleTabSwitch('kept')} style={tabStyle('kept')}>
+            Kept
+            {keptList.length > 0 && (
+              <span style={{
+                marginLeft: '6px', fontSize: '11px',
+                color: tab === 'kept' ? 'rgba(255,255,255,0.50)' : 'rgba(255,255,255,0.20)',
+              }}>
+                {keptList.length}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Gallery grid */}
@@ -860,14 +908,15 @@ export default function HomePage() {
             <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: '14px' }}>Loading...</p>
           </div>
         ) : filtered.length === 0 ? (
-          <EmptyState onUpload={() => setShowUpload(true)} />
+          <EmptyState tab={tab} onUpload={() => setShowUpload(true)} />
         ) : (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, 1fr)',
-            gap: '12px',
-          }}
-          className="gallery-grid"
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '12px',
+            }}
+            className="gallery-grid"
           >
             {filtered.map((screenshot) => (
               <GalleryCard
@@ -882,12 +931,12 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* Floating action bar */}
-      {selected.size > 0 && (
+      {/* Floating action bar — only in review tab with selections */}
+      {selected.size > 0 && tab === 'review' && (
         <FloatingBar
           count={selected.size}
-          analyzing={batchAnalyzing}
-          onAnalyze={handleBatchAnalyze}
+          acting={batchActing}
+          onKeep={handleBatchKeep}
           onDelete={handleBatchDelete}
           onClear={() => setSelected(new Set())}
         />
@@ -899,6 +948,7 @@ export default function HomePage() {
           screenshot={activeDetail}
           onClose={() => setActiveDetail(null)}
           onDelete={handleDeleteFromDetail}
+          onKeep={handleKeepFromDetail}
         />
       )}
 
@@ -910,7 +960,7 @@ export default function HomePage() {
         />
       )}
 
-      {/* Responsive grid style */}
+      {/* Responsive grid */}
       <style>{`
         @media (min-width: 640px) {
           .gallery-grid {

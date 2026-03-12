@@ -6,7 +6,7 @@ export interface Screenshot {
   file_size: number | null
   mime_type: string | null
   uploaded_at: string
-  status: 'inbox' | 'analyzing' | 'analyzed' | 'archived'
+  status: 'processing' | 'analyzed' | 'kept'
   ocr: string | null
   analysis: string | null
   summary: string | null
